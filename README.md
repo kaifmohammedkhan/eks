@@ -174,181 +174,169 @@ Verification confirmed:
 
 <img src="images/eks/S3 EKS/eks3.3.png" width="250"/>
 
-# Amazon EKS Deployment Walkthrough
 
-Provisioning and running Kubernetes workloads on **Amazon Elastic Kubernetes Service (EKS)**. This walkthrough covers the complete deployment lifecycle—from installing required CLI tools and preparing Kubernetes manifests to provisioning an EKS cluster, configuring IAM permissions, integrating persistent storage, deploying applications through an Application Load Balancer (ALB), managing secrets, validating workloads, and fronting the application with Amazon CloudFront.
+# Step 4: Storage Integration & IAM Permissions
 
----
+To enable persistent storage for stateful workloads, the required IAM permissions were configured before deploying the application. The **Amazon EBS CSI Driver** IAM policy was created and attached to the EKS worker node role, allowing Kubernetes to dynamically provision Amazon EBS volumes for PersistentVolumeClaims (PVCs).
 
-## Access the walkthrough
-
-[![Amazon EKS walkthrough](https://img.youtube.com/vi/yKO90s1PIb4/0.jpg)](https://www.youtube.com/embed/yKO90s1PIb4?si=BSRCthI2bnWHXxW_)
-
-[Watch the video on YouTube](https://www.youtube.com/embed/yKO90s1PIb4?si=BSRCthI2bnWHXxW_)
-
----
-
-## 🛠 Deployment Strategy
-
-<div align="center">
-<img src="images/eks/eks1.png" width="1000"/>
-</div>
-
----
-
-# Step 1: Base Setup
-
-Before provisioning an Amazon EKS cluster, the local development environment was prepared by installing and validating all required command-line utilities.
-
-Required tools:
-
-- AWS CLI
-- kubectl
-- eksctl
-- Kustomize
-
-Version verification:
+First, the IAM policy definition was downloaded from the official AWS EBS CSI Driver repository and registered in the AWS account.
 
 ```bash
-eksctl version
-aws --version
-kubectl version --client
+curl -o ebs-csi-policy.json \
+https://raw.githubusercontent.com/kubernetes-sigs/aws-ebs-csi-driver/master/docs/example-iam-policy.json
+
+aws iam create-policy \
+  --policy-name AmazonEBSCSIDriverPolicy \
+  --policy-document file://ebs-csi-policy.json
 ```
 
-Initially, `eksctl` was unavailable because it was not included in the Windows PATH.
+The required IAM policies were then attached to the EKS managed node group role:
 
-The executable was downloaded from the official GitHub releases page and copied to:
+```bash
+aws iam attach-role-policy \
+  --role-name eksctl-resume-cluster-nodegroup-NodeInstanceRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
 
-```text
-C:\Tools\eksctl
+aws iam attach-role-policy \
+  --role-name eksctl-resume-cluster-nodegroup-NodeInstanceRole \
+  --policy-arn arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess
+
+aws iam attach-role-policy \
+  --role-name eksctl-resume-cluster-nodegroup-NodeInstanceRole \
+  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/AmazonEBSCSIDriverPolicy
 ```
 
-The PATH environment variable was updated:
+Verification confirmed that all required policies were successfully attached to the worker node IAM role.
 
-```powershell
-setx PATH "%PATH%;C:\Tools\eksctl"
-```
+**Attached Policies**
 
-Verification confirmed the installation:
+- AmazonEBSCSIDriverPolicy
+- ElasticLoadBalancingFullAccess
+- AmazonSSMReadOnlyAccess
 
-```text
-0.229.0
-```
-
-At this stage the workstation was fully configured to provision and manage Amazon EKS clusters.
+This completed the storage permissions required for dynamic Amazon EBS volume provisioning and enabled worker nodes to interact securely with AWS services during deployment.
 
 <div align="center">
 
-<img src="images/eks/S1 EKS/eks1.1.png" width="250"/>
+<img src="images/eks/S4 EKS/eks4.1.png" width="250"/>
 
-<img src="images/eks/S1 EKS/eks1.2.png" width="250"/>
+<img src="images/eks/S4 EKS/eks4.2.png" width="250"/>
 
-<img src="images/eks/S1 EKS/eks1.3.png" width="250"/>
-
-<img src="images/eks/S1 EKS/eks1.4.png" width="250"/>
+<img src="images/eks/S4 EKS/eks4.3.png" width="250"/>
 
 </div>
 
 ---
 
-# Step 2: Preparing Kubernetes Manifests
+# Step 5: AWS Load Balancer Controller
 
-Prior to cluster creation, every Kubernetes manifest required by the application was organized inside the **EKS/** directory.
+After configuring IAM permissions, the cluster was prepared for application exposure by installing the required Amazon EKS add-ons.
 
-The deployment package included:
+The **Amazon EBS CSI Driver** was installed to provide dynamic persistent storage, followed by deployment of the **AWS Load Balancer Controller**, which automatically provisions an **Application Load Balancer (ALB)** from Kubernetes Ingress resources.
 
-- `configmap.yaml`
-- `ingress.yaml`
-- `postgres.yaml`
-- `resume-matcher-ghcr.yaml`
-- `service.yaml`
-- `storageclass.yaml`
-
-Each manifest defined one layer of the application stack including configuration, networking, storage, application deployment, and ingress routing.
-
-Deployment of all resources can be performed using a single command:
+Install the Amazon EBS CSI Driver:
 
 ```bash
-kubectl apply -f ./EKS
+eksctl create addon \
+  --name aws-ebs-csi-driver \
+  --cluster resume-cluster \
+  --region ap-south-1
 ```
 
-Verification commands:
+Add the AWS Helm repository and install the AWS Load Balancer Controller:
 
 ```bash
-kubectl get pods
+helm repo add eks https://aws.github.io/eks-charts
 
-kubectl get svc
+helm repo update
 
-kubectl get ingress
+helm install aws-load-balancer-controller \
+  eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=resume-cluster \
+  --set serviceAccount.create=false \
+  --set region=ap-south-1 \
+  --set vpcId=vpc-07907491331a31045
 ```
 
-This ensured every Kubernetes resource was correctly defined before provisioning the EKS infrastructure.
-
-<div align="center">
-
-<img src="images/eks/S2 EKS/eks2.1.png" width="250"/>
-
-<img src="images/eks/S2 EKS/eks2.2.png" width="250"/>
-
-<img src="images/eks/S2 EKS/eks2.3.png" width="250"/>
-
-<img src="images/eks/S2 EKS/eks2.4.png" width="250"/>
-
-<img src="images/eks/S2 EKS/eks2.5.png" width="250"/>
-
-<img src="images/eks/S2 EKS/eks2.6.png" width="250"/>
-
-</div>
-
----
-
-# Step 3: Cluster Creation & Kubeconfig
-
-After preparing the deployment manifests, an Amazon EKS cluster was provisioned using **eksctl**.
-
-Identity verification:
+Verify the installation:
 
 ```bash
-aws sts get-caller-identity
-```
-
-Cluster creation:
-
-```bash
-eksctl create cluster \
-  --name resume-cluster \
-  --region ap-south-1 \
-  --nodegroup-name resume-nodes \
-  --node-type t3.medium \
-  --nodes 2 \
-  --nodes-min 2 \
-  --nodes-max 4 \
-  --managed
-```
-
-Once CloudFormation completed successfully, kubeconfig was updated:
-
-```bash
-aws eks \
-  --region ap-south-1 \
-  update-kubeconfig \
-  --name resume-cluster
+kubectl get pods -n kube-system
 ```
 
 Verification confirmed:
 
-- Active EKS cluster
-- Kubernetes v1.34
-- kubectl connectivity
-- Worker nodes joined successfully
+- Amazon EBS CSI Driver running
+- AWS Load Balancer Controller deployed successfully
+- Controller Manager healthy
+- Cluster ready to provision Application Load Balancers automatically from Kubernetes Ingress manifests
 
 <div align="center">
 
-<img src="images/eks/S3 EKS/eks3.1.png" width="250"/>
+<img src="images/eks/S5 EKS/eks5.1.png" width="250"/>
 
-<img src="images/eks/S3 EKS/eks3.2.png" width="250"/>
+<img src="images/eks/S5 EKS/eks5.2.png" width="250"/>
 
-<img src="images/eks/S3 EKS/eks3.3.png" width="250"/>
+</div>
+
+---
+
+# Step 6: Private Registry Authentication & Cluster Verification
+
+Before deploying workloads, Kubernetes was configured to authenticate with the private **GitHub Container Registry (GHCR)**. A Docker registry secret was created to allow worker nodes to securely pull private container images during deployment.
+
+Authenticate with GitHub Container Registry:
+
+```bash
+docker login ghcr.io \
+-u <github-username> \
+-p <personal-access-token>
+```
+
+Create the Kubernetes registry secret:
+
+```bash
+kubectl create secret docker-registry ghcr-secret \
+  --docker-server=ghcr.io \
+  --docker-username=<github-username> \
+  --docker-password=<personal-access-token>
+```
+
+Verify the secret:
+
+```bash
+kubectl get secrets
+```
+
+Perform cluster health verification:
+
+```bash
+kubectl get nodes
+
+kubectl get pods -A
+```
+
+Validation confirmed:
+
+- `ghcr-secret` created successfully
+- Registry credentials stored as `kubernetes.io/dockerconfigjson`
+- Worker nodes in the **Ready** state
+- Core Kubernetes components healthy
+- `aws-node`
+- `coredns`
+- `kube-proxy`
+- `metrics-server`
+
+With registry authentication complete and all cluster components verified, the environment was fully prepared for application deployment.
+
+<div align="center">
+
+<img src="images/eks/S6 EKS/eks6.1.png" width="250"/>
+
+<img src="images/eks/S6 EKS/eks6.2.png" width="250"/>
+
+<img src="images/eks/S6 EKS/eks6.3.png" width="250"/>
 
 </div>
 
