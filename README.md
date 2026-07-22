@@ -15,7 +15,7 @@ Provisioning and running Kubernetes workloads on **Amazon Elastic Kubernetes Ser
 ## 🛠 Deployment Strategy
 
 <div align="center">
-<img src="images/eks/eks1.png" width="1000"/>
+<img src="images/eks/eks.png" width="1000"/>
 </div>
 
 ---
